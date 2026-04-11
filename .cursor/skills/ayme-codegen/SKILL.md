@@ -7,7 +7,7 @@ description: Runs Ayme codegen recording and generates page object models and te
 
 Generate page objects and test specs from Ayme codegen recordings.
 
-The codegen tool opens a browser where the user records interactions. When recording finishes, it outputs a synthesis describing the page structure, a semantic timeline of interactions, and per-visit semantic trees with locator recommendations. These are used to generate plain TypeScript POM classes and a Playwright test spec.
+The codegen tool opens a browser where the user records interactions. When recording finishes, it outputs a synthesis describing the page structure, a semantic timeline of interactions, per-visit semantic trees with locator recommendations, and pre-structured test steps with assertions. These are used to generate plain TypeScript POM classes and a Playwright test spec.
 
 ## Workflow
 
@@ -21,7 +21,7 @@ Run the codegen command in the background and wait for completion. See [referenc
 
 ### 3. Generate POM files
 
-Generate page object and component classes from the synthesis output. See [references/pom-generation.md](references/pom-generation.md).
+Generate page object and component classes from the codegen output. See [references/pom-generation.md](references/pom-generation.md).
 
 ### 4. Generate test spec
 

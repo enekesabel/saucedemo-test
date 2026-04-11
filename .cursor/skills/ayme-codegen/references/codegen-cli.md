@@ -14,13 +14,14 @@ This command is interactive and long-running — the user records actions in a b
 
 ## Output format
 
-The CLI prints a single JSON object to stdout with three top-level fields:
+The CLI prints a single JSON object to stdout with four top-level fields:
 
 ```json
 {
   "synthesis": { ... },
   "semanticTimeline": [ ... ],
-  "semanticTree": { ... }
+  "semanticTree": { ... },
+  "testOutput": { ... }
 }
 ```
 
@@ -96,10 +97,9 @@ ScopedStructuralRef = {
 
 ```typescript
 DiscoveredState = {
-  id: string                               // Unique state identifier
-  name: string                             // Semantic name (e.g., "isExpanded", "selectedIndex")
-  description: string                      // What this state represents
-  valueType: 'boolean' | 'string' | 'number'
+  id: string       // Unique state identifier
+  name: string     // Semantic name (e.g., "isExpanded", "selectedIndex")
+  description: string // What this state represents
 }
 ```
 
@@ -107,25 +107,16 @@ DiscoveredState = {
 
 ```typescript
 DiscoveredAction = {
-  id: string                                // Unique action identifier
-  name: string                              // Semantic name (e.g., "expand", "submit")
-  description: string                       // What this action does
-  parameters: ActionParameterDefinition[]   // Parameters this action accepts
-  expectedStateEffects: ExpectedStateEffect[] // Expected state changes
+  id: string                              // Unique action identifier
+  name: string                            // Semantic name (e.g., "expand", "submit")
+  description: string                     // What this action does
+  parameters: ActionParameterDefinition[] // Parameters this action accepts
 }
 
 ActionParameterDefinition = {
   name: string
-  type: 'boolean' | 'string' | 'number'
   description: string
   required: boolean
-}
-
-ExpectedStateEffect = {
-  stateId: string
-  expectedValue:
-    | { kind: 'static', value: boolean | string | number }
-    | { kind: 'dynamic', fromParameter: string }
 }
 ```
 
@@ -173,10 +164,9 @@ UnassignedSemanticChangeEntry = {
 
 ```typescript
 SemanticEffect = {
-  subjectInstance: ScopedStructuralRef  // { visitId, structuralNodeId }
-  stateKey: string                     // e.g. 'isVisible', 'value', 'isChecked'
-  previousValue: boolean | string | number | null
-  currentValue: boolean | string | number
+  id: string                     // Unique effect identifier (e.g., "effect_timeline_7_0")
+  description: string            // Natural language description (e.g., "Shopping Cart Badge appeared")
+  affectedInstances: string[]    // Structural node IDs of affected elements
 }
 ```
 
@@ -185,7 +175,7 @@ SemanticEffect = {
 ```typescript
 RecorderInteraction = {
   id: string
-  type: 'click' | 'fill' | 'press' | 'select' | 'check' | 'uncheck' | 'hover' | 'navigate' | 'openPage' | 'closePage' | 'setInputFiles' | ...
+  type: 'click' | 'fill' | 'press' | 'select' | 'check' | 'uncheck' | 'hover' | 'navigate' | 'openPage' | 'closePage' | 'setInputFiles' | 'assertVisible' | ...
   targetNodeId: string | null
   signals?: Array<{ name: 'navigation' | 'popup' | 'download' | 'dialog', url?: string }>
   text?: string           // For fill actions
@@ -220,17 +210,15 @@ SemanticTreeNodeJson = {
   suggestedRole?: 'pattern' | 'leaf'
   appearedAfter?: string         // Timeline record ID after which this node appeared
   disappearedAfter?: string      // Timeline record ID after which this node disappeared
-  locators?: string[]            // Playwright locator strings (e.g., "getByRole('button', { name: 'Login' })")
-  states?: Array<{ key: string, type: string }>
+  locators?: string[]            // Playwright locator strings (e.g., "locator('[data-test=\"username\"]')")
+  yamlSubtree?: string           // DOM subtree YAML showing text content, labels, and element roles (e.g., "- link \"Sauce Labs Backpack\" [ref=e158]")
   interactions?: Array<{
     timelineRecordId: string
     type: string
     parameters?: Record<string, unknown>
     effects: Array<{
-      subject: string            // Structural node ID
-      stateKey: string
-      previousValue: unknown
-      currentValue: unknown
+      description: string        // Natural language description
+      affectedInstances: string[] // Structural node IDs
     }>
     contained: boolean           // Whether all effects are within this node's subtree
   }>
@@ -238,14 +226,84 @@ SemanticTreeNodeJson = {
 }
 ```
 
-## Connecting the three fields
+### `testOutput` — Pre-structured test steps and assertions
 
-The visit-scoped structural reference `{ visitId, structuralNodeId }` is the shared key across all three:
+Contains AI-generated test structure with two levels of abstraction (UI steps and flow steps) and two test scenarios (UI test and E2E test). **This is the primary source of truth for test generation.**
+
+May be `null` if test step generation failed.
+
+#### UiStep
+
+A boundary-scoped step containing direct timeline interactions. Each UI step operates within exactly one boundary (a page visit or a component like a modal).
+
+```typescript
+UiStep = {
+  id: string                     // Unique identifier (e.g., "ui_1")
+  name: string                   // Concrete description (e.g., "Login with username 'standard_user' and password 'secret_sauce'")
+  boundaryRef: string            // Visit ID or structural node ID identifying the boundary
+  sequence: string[]             // Ordered timeline record IDs that make up this step
+}
+```
+
+#### FlowStep
+
+A higher-level step that composes UI steps across boundaries, representing a user goal.
+
+```typescript
+FlowStep = {
+  id: string                     // Unique identifier (e.g., "flow_1")
+  name: string                   // Goal-oriented description (e.g., "Authenticate user")
+  sequence: string[]             // Ordered UI step IDs that compose this flow step
+}
+```
+
+#### Assertion
+
+```typescript
+Assertion = {
+  description: string            // What to verify (e.g., "Shopping Cart Badge appeared")
+  effectIds: string[]            // Semantic effect IDs from the timeline that this assertion verifies
+}
+```
+
+#### UiTestEntry
+
+```typescript
+UiTestEntry = {
+  uiStepId: string               // The UI step to execute
+  assertions: Assertion[]        // Assertions to verify after this step
+}
+```
+
+#### E2eTestEntry
+
+```typescript
+E2eTestEntry = {
+  flowStepId: string             // The flow step to execute
+  assertions: Assertion[]        // Outcome-level assertions after this flow step
+}
+```
+
+#### TestOutput
+
+```typescript
+TestOutput = {
+  uiSteps: UiStep[]             // All boundary-scoped UI steps
+  flowSteps: FlowStep[]         // Higher-level flow steps composing UI steps
+  uiTest: UiTestEntry[]         // UI test: ordered UI steps with assertions
+  e2eTest: E2eTestEntry[]       // E2E test: ordered flow steps with outcome assertions
+}
+```
+
+## Connecting the fields
+
+The visit-scoped structural reference `{ visitId, structuralNodeId }` is the shared key across synthesis and semanticTree:
 
 | Field | Where references appear | Purpose |
 |---|---|---|
 | `synthesis` | `sourceStructuralNodeIds` on pages/patterns/children | Links conceptual POM to DOM elements |
-| `semanticTimeline` | `subjectInstance` on effects, `targetNodeId` + `visitId` on interactions | Identifies interaction targets and state change subjects |
+| `semanticTimeline` | `effects[].affectedInstances`, `targetNodeId` + `visitId` on interactions | Identifies interaction targets and state change subjects |
 | `semanticTree` | `semanticTree[visitId].page.children[].ref` | Provides locators and hierarchy for each element |
+| `testOutput` | `uiStep.boundaryRef` (visit ID or structural node ID), `uiStep.sequence` (timeline record IDs) | Groups timeline interactions into named steps with assertions |
 
-**Workflow:** Use `synthesis` for the class structure (what classes, states, actions to create). Look up locators in `semanticTree[visitId]` by matching `ref` to `structuralNodeId`. Use `semanticTimeline` to generate the test spec, grouping entries by `visitId`.
+**Workflow:** Use `synthesis` for the class structure (what classes, children to create). Look up locators in `semanticTree[visitId]` by matching `ref` to `structuralNodeId`. Use `testOutput.uiSteps` as the primary source for POM action methods. Use `testOutput.uiTest` to generate the test spec. Use `semanticTimeline` as supplementary detail for understanding interaction parameters and effects.
